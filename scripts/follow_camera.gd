@@ -14,12 +14,15 @@ const HOUSE_CENTER := Vector3(0.0, 0.0, 0.0)
 var target: Node3D
 var transparent_materials: Dictionary = {}  # Track original materials for restoration
 
+# Fixed world-space 45-degree offset direction (camera always comes from the same world angle)
+const CAMERA_OFFSET_DIR := Vector3(1.0, 0.0, 1.0)  # Will be normalized at use
+
 func _ready() -> void:
 	set_as_top_level(true)
 	target = get_node_or_null(target_path) as Node3D
 	if target != null:
-		var back := target.global_transform.basis.z
-		global_position = target.global_position + back * follow_distance + Vector3.UP * follow_height
+		var offset := CAMERA_OFFSET_DIR.normalized()
+		global_position = target.global_position + offset * follow_distance + Vector3.UP * follow_height
 		look_at(target.global_position + Vector3(0.0, look_height, 0.0), Vector3.UP)
 
 func _is_indoors(position: Vector3) -> bool:
@@ -33,15 +36,15 @@ func _physics_process(delta: float) -> void:
 		if target == null:
 			return
 
-	# Trail behind and to the side of the player at 45 degrees
-	var back := target.global_transform.basis.z
-	var right := target.global_transform.basis.x
-	var diagonal := (back + right * 0.5).normalized()
-	
+	# Fixed world-space 45-degree diagonal — does not depend on player facing direction.
+	# Using player's basis caused a spiral: movement direction changed player rotation,
+	# which shifted the camera, which shifted movement direction, etc.
+	var offset := CAMERA_OFFSET_DIR.normalized()
+
 	# Determine camera distance based on indoor/outdoor status
 	var current_distance := follow_distance_indoor if _is_indoors(target.global_position) else follow_distance
-	
-	var desired_position := target.global_position + diagonal * current_distance + Vector3.UP * follow_height
+
+	var desired_position := target.global_position + offset * current_distance + Vector3.UP * follow_height
 	var weight := 1.0 - exp(-smoothing * delta)
 	global_position = global_position.lerp(desired_position, weight)
 	look_at(target.global_position + Vector3(0.0, look_height, 0.0), Vector3.UP)
