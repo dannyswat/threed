@@ -1,0 +1,48 @@
+[gd_scene format=3 uid="uid://frrwcg40yl0c"]
+
+[ext_resource type="PackedScene" path="res://scenes/House.tscn" id="1_house"]
+[ext_resource type="PackedScene" uid="uid://c8k3o4j0scd6f" path="res://scenes/Player.tscn" id="2_player"]
+[ext_resource type="Script" uid="uid://bl1d7si47u8tm" path="res://scripts/follow_camera.gd" id="3_camera_script"]
+
+[sub_resource type="ProceduralSkyMaterial" id="1_sky_material"]
+sky_top_color = Color(0.24, 0.51, 0.71, 1)
+sky_horizon_color = Color(0.89, 0.84, 0.7, 1)
+ground_bottom_color = Color(0.26, 0.29, 0.2, 1)
+ground_horizon_color = Color(0.53, 0.56, 0.35, 1)
+
+[sub_resource type="Sky" id="2_sky"]
+sky_material = SubResource("1_sky_material")
+
+[sub_resource type="Environment" id="3_environment"]
+background_mode = 2
+sky = SubResource("2_sky")
+ambient_light_source = 3
+ambient_light_color = Color(1, 0.98, 0.93, 1)
+ambient_light_energy = 0.45
+fog_enabled = true
+fog_light_color = Color(0.84, 0.8, 0.72, 1)
+fog_density = 0.003
+
+[node name="Main" type="Node3D" unique_id=2080077506]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2062938883]
+environment = SubResource("3_environment")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=517626878]
+transform = Transform3D(0.7880108, -0.4575257, 0.41195792, 0, 0.66913056, 0.74314487, -0.6156615, -0.58560616, 0.5272821, 0, 0, 0)
+light_color = Color(1, 0.95, 0.87, 1)
+light_energy = 2.0
+shadow_enabled = true
+
+[node name="House" parent="." unique_id=1023491995 instance=ExtResource("1_house")]
+
+[node name="Player" parent="." unique_id=1162971870 instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+
+[node name="CameraRig" type="Node3D" parent="." unique_id=1078908495]
+script = ExtResource("3_camera_script")
+target_path = NodePath("../Player")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=169367228]
+current = true
+fov = 72.0
