@@ -3,9 +3,13 @@ extends Node3D
 @export var target_path: NodePath
 @export var follow_distance := 5.0
 @export var follow_distance_indoor := 1.5
-@export var follow_height := 2.8
+@export var pitch_degrees := 30.0
 @export var look_height := 0.9
 @export var smoothing := 7.0
+@export var yaw_speed_degrees := 110.0
+@export var pitch_speed_degrees := 75.0
+@export var min_pitch_degrees := 15.0
+@export var max_pitch_degrees := 65.0
 
 # House bounds for indoor detection
 const HOUSE_SIZE := Vector3(16.0, 100.0, 14.0)  # x, y (ignored), z
@@ -13,16 +17,13 @@ const HOUSE_CENTER := Vector3(0.0, 0.0, 0.0)
 
 var target: Node3D
 var transparent_materials: Dictionary = {}  # Track original materials for restoration
-
-# Fixed world-space 45-degree offset direction (camera always comes from the same world angle)
-const CAMERA_OFFSET_DIR := Vector3(1.0, 0.0, 1.0)  # Will be normalized at use
+var camera_yaw_offset := 0.0
 
 func _ready() -> void:
 	set_as_top_level(true)
 	target = get_node_or_null(target_path) as Node3D
 	if target != null:
-		var offset := CAMERA_OFFSET_DIR.normalized()
-		global_position = target.global_position + offset * follow_distance + Vector3.UP * follow_height
+		global_position = _get_desired_position(follow_distance)
 		look_at(target.global_position + Vector3(0.0, look_height, 0.0), Vector3.UP)
 
 func _is_indoors(position: Vector3) -> bool:
@@ -36,21 +37,47 @@ func _physics_process(delta: float) -> void:
 		if target == null:
 			return
 
-	# Fixed world-space 45-degree diagonal — does not depend on player facing direction.
-	# Using player's basis caused a spiral: movement direction changed player rotation,
-	# which shifted the camera, which shifted movement direction, etc.
-	var offset := CAMERA_OFFSET_DIR.normalized()
+	_update_camera_input(delta)
 
 	# Determine camera distance based on indoor/outdoor status
 	var current_distance := follow_distance_indoor if _is_indoors(target.global_position) else follow_distance
 
-	var desired_position := target.global_position + offset * current_distance + Vector3.UP * follow_height
+	var desired_position := _get_desired_position(current_distance)
 	var weight := 1.0 - exp(-smoothing * delta)
 	global_position = global_position.lerp(desired_position, weight)
 	look_at(target.global_position + Vector3(0.0, look_height, 0.0), Vector3.UP)
 	
 	# Check for walls blocking camera view and make them transparent
 	_update_wall_transparency()
+
+
+func _update_camera_input(delta: float) -> void:
+	var yaw_input := 0.0
+	if Input.is_physical_key_pressed(KEY_A):
+		yaw_input += 1.0
+	if Input.is_physical_key_pressed(KEY_D):
+		yaw_input -= 1.0
+	camera_yaw_offset += deg_to_rad(yaw_input * yaw_speed_degrees * delta)
+
+	var pitch_input := 0.0
+	if Input.is_physical_key_pressed(KEY_W):
+		pitch_input += 1.0
+	if Input.is_physical_key_pressed(KEY_S):
+		pitch_input -= 1.0
+	pitch_degrees = clamp(
+		pitch_degrees + pitch_input * pitch_speed_degrees * delta,
+		min_pitch_degrees,
+		max_pitch_degrees
+	)
+
+
+func _get_desired_position(current_distance: float) -> Vector3:
+	var pitch_radians := deg_to_rad(pitch_degrees)
+	var horizontal_distance := current_distance * cos(pitch_radians)
+	var vertical_offset := current_distance * sin(pitch_radians)
+	var local_offset := Basis(Vector3.UP, camera_yaw_offset) * Vector3(0.0, 0.0, horizontal_distance)
+	var world_offset := target.global_transform.basis * local_offset
+	return target.global_position + world_offset + Vector3.UP * vertical_offset
 
 
 func _update_wall_transparency() -> void:

@@ -3,6 +3,8 @@
 [ext_resource type="PackedScene" path="res://scenes/House.tscn" id="1_house"]
 [ext_resource type="PackedScene" uid="uid://c8k3o4j0scd6f" path="res://scenes/Player.tscn" id="2_player"]
 [ext_resource type="Script" uid="uid://bl1d7si47u8tm" path="res://scripts/follow_camera.gd" id="3_camera_script"]
+[ext_resource type="PackedScene" uid="uid://b2uc7l74t66in" path="res://scenes/blackwitch.glb" id="4_blackwitch"]
+[ext_resource type="Script" uid="uid://c5x6oc8xdoqxv" path="res://scripts/idle_character.gd" id="5_idle_character"]
 
 [sub_resource type="ProceduralSkyMaterial" id="1_sky_material"]
 sky_top_color = Color(0.24, 0.51, 0.71, 1)
@@ -16,23 +18,27 @@ sky_material = SubResource("1_sky_material")
 [sub_resource type="Environment" id="3_environment"]
 background_mode = 2
 sky = SubResource("2_sky")
-ambient_light_source = 3
+ambient_light_source = 2
 ambient_light_color = Color(1, 0.98, 0.93, 1)
-ambient_light_energy = 0.45
+ambient_light_energy = 0.25
 fog_enabled = true
 fog_light_color = Color(0.84, 0.8, 0.72, 1)
 fog_density = 0.003
 
-[node name="Main" type="Node3D" unique_id=2080077506]
+[sub_resource type="CapsuleShape3D" id="4_npc_shape"]
+radius = 0.28
+height = 1.75
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2062938883]
-environment = SubResource("3_environment")
+[node name="Main" type="Node3D" unique_id=2080077506]
 
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=517626878]
 transform = Transform3D(0.7880108, -0.4575257, 0.41195792, 0, 0.66913056, 0.74314487, -0.6156615, -0.58560616, 0.5272821, 0, 0, 0)
 light_color = Color(1, 0.95, 0.87, 1)
-light_energy = 2.0
+light_energy = 0.4
 shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2062938883]
+environment = SubResource("3_environment")
 
 [node name="House" parent="." unique_id=1023491995 instance=ExtResource("1_house")]
 
@@ -46,3 +52,16 @@ target_path = NodePath("../Player")
 [node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=169367228]
 current = true
 fov = 72.0
+
+[node name="BedroomNpc" type="Node3D" parent="." unique_id=1881124401]
+transform = Transform3D(0, 0, -1.3, 0, 1.3, 0, 1.3, 0, 0, 4.3, 0.05, -3.4)
+script = ExtResource("5_idle_character")
+idle_animation = "NlaTrack_001"
+
+[node name="Model" parent="BedroomNpc" unique_id=2105449302 instance=ExtResource("4_blackwitch")]
+
+[node name="StaticBody3D" type="StaticBody3D" parent="BedroomNpc" unique_id=1590118022]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BedroomNpc/StaticBody3D" unique_id=1435329208]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.875, 0)
+shape = SubResource("4_npc_shape")

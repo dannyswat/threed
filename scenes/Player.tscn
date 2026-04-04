@@ -1,6 +1,7 @@
 [gd_scene format=3 uid="uid://c8k3o4j0scd6f"]
 
 [ext_resource type="Script" uid="uid://odhvnbi5losv" path="res://scripts/player.gd" id="1_player_script"]
+[ext_resource type="PackedScene" uid="uid://bht5tjcoitlkv" path="res://scenes/pajama girl.glb" id="2_player_model"]
 
 [sub_resource type="CapsuleShape3D" id="1_body_shape"]
 radius = 0.28
@@ -15,3 +16,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.875, 0)
 shape = SubResource("1_body_shape")
 
 [node name="VisualRoot" type="Node3D" parent="." unique_id=1816880805]
+
+[node name="Model" parent="VisualRoot" unique_id=1234567891 instance=ExtResource("2_player_model")]
+transform = Transform3D(0, 0, 1.3, 0, 1.3, 0, -1.3, 0, 0, 0, 0, 0)

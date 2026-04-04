@@ -17,6 +17,20 @@ const SHOOT_DURATION := 0.35
 
 const SWORD_SCENE := preload("res://scenes/Sword.tscn")
 const GUN_SCENE   := preload("res://scenes/Gun.tscn")
+const RELAXED_CLAVICLE_Z := 0.18
+const RELAXED_UPPERARM_Z := 0.80
+const RELAXED_ARM_SPREAD_Y := 0.22
+const RELAXED_FOREARM_X := 0.22
+const RELAXED_FOREARM_Z := 0.1
+const RELAXED_HAND_X := -0.12
+const RELAXED_HAND_Z := 0.06
+const WALK_LEG_INWARD_Z := 0.00
+const WALK_THIGH_SWING := 0.52
+const WALK_CALF_SWING := 0.22
+const WALK_CALF_BEND := 0.9
+const WALK_FOOT_SWING := 0.16
+const WALK_HIP_BOB := 0.028
+const DEBUG_MODEL_ANIMATION := true
 
 @onready var visual_root: Node3D = $VisualRoot
 
@@ -29,16 +43,54 @@ var holding_gun := false
 var sword: Node3D
 var gun: Node3D
 var g_key_pressed_last_frame := false
+var left_key_was_pressed := false
+var right_key_was_pressed := false
+var anim_player: AnimationPlayer = null
+var model_skeleton: Skeleton3D = null
+var bone_ids: Dictionary = {}
+var base_bone_rotations: Dictionary = {}
+var base_bone_positions: Dictionary = {}
+var leg_bone_groups := {
+	"left_thigh": [],
+	"left_calf": [],
+	"left_foot": [],
+	"right_thigh": [],
+	"right_calf": [],
+	"right_foot": []
+}
+var idle_timer := 0.0
+var imported_idle_anim := ""
+var using_imported_idle := false
+var last_debug_log_time := 0.0
+
+const IDLE_ANIMATION_DELAY := 0.5
+const IDLE_ANIMATION_CANDIDATES := ["NlpTrack.001", "NlpTrack_001", "NlaTrack.001", "NlaTrack_001"]
 
 func _ready() -> void:
 	_rebuild_dummy_rig()
+	# Find the imported model animation and skeleton nodes.
+	var model := visual_root.get_node_or_null("Model")
+	if model:
+		anim_player = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		model_skeleton = model.find_child("Skeleton3D", true, false) as Skeleton3D
+	if anim_player:
+		anim_player.stop()
+		imported_idle_anim = _find_animation_name(IDLE_ANIMATION_CANDIDATES)
+	if model_skeleton:
+		_cache_model_bones()
+		_animate_model(0.0, 0.0)
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
 
-	var input_vector := _get_move_input()
-	var move_direction := _camera_relative_direction(input_vector)
+	var forward_input := _get_forward_input()
+	var is_walking := forward_input != 0.0
+	var move_direction: Vector3
+	if forward_input != 0.0:
+		move_direction = -global_transform.basis.z * forward_input
+	else:
+		move_direction = Vector3.ZERO
 
 	if move_direction != Vector3.ZERO:
 		velocity.x = move_toward(velocity.x, move_direction.x * SPEED, ACCELERATION * delta)
@@ -54,10 +106,15 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 
-	var horizontal_velocity := Vector3(velocity.x, 0.0, velocity.z)
-	if horizontal_velocity.length() > 0.12:
-		var facing_angle := atan2(horizontal_velocity.x, horizontal_velocity.z) - PI
-		rotation.y = lerp_angle(rotation.y, facing_angle, TURN_SPEED * delta)
+	# Snap turn 45 degrees per key press
+	var left_pressed := _is_any_key_pressed([KEY_LEFT]) != 0
+	var right_pressed := _is_any_key_pressed([KEY_RIGHT]) != 0
+	if left_pressed and not left_key_was_pressed:
+		rotation.y += PI / 4.0
+	if right_pressed and not right_key_was_pressed:
+		rotation.y -= PI / 4.0
+	left_key_was_pressed = left_pressed
+	right_key_was_pressed = right_pressed
 
 	if Input.is_physical_key_pressed(KEY_X) and swing_timer <= 0.0:
 		swing_timer = SHOOT_DURATION if holding_gun else SWING_DURATION
@@ -76,40 +133,225 @@ func _physics_process(delta: float) -> void:
 		_update_weapon_visibility()
 	g_key_pressed_last_frame = g_pressed
 
+	var horizontal_velocity := Vector3(velocity.x, 0.0, velocity.z)
 	_animate_rig(delta, horizontal_velocity.length())
+	_animate_model(delta, forward_input)
 
-func _get_move_input() -> Vector2:
-	var left := _is_any_key_pressed([KEY_A, KEY_LEFT])
-	var right := _is_any_key_pressed([KEY_D, KEY_RIGHT])
-	var forward := _is_any_key_pressed([KEY_W, KEY_UP])
-	var backward := _is_any_key_pressed([KEY_S, KEY_DOWN])
+func _find_animation_name(candidates: Array) -> String:
+	if anim_player == null:
+		return ""
+	for candidate in candidates:
+		if anim_player.has_animation(candidate):
+			return candidate
+	return ""
 
-	var input_vector := Vector2(float(right - left), float(backward - forward))
-	return input_vector.limit_length(1.0)
+func _cache_model_bones() -> void:
+	var tracked_bones := [
+		"Root",
+		"Hip",
+		"Pelvis",
+		"Waist",
+		"Spine01",
+		"Spine02",
+		"NeckTwist01",
+		"Head",
+		"L_Clavicle",
+		"L_Thigh",
+		"L_ThighTwist01",
+		"L_Calf",
+		"L_Foot",
+		"L_Forearm",
+		"L_Hand",
+		"R_Clavicle",
+		"R_Thigh",
+		"R_ThighTwist01",
+		"R_Calf",
+		"R_CalfTwist01",
+		"R_CalfTwist02",
+		"R_Foot",
+		"R_Forearm",
+		"R_Hand",
+		"L_Upperarm",
+		"R_Upperarm"
+	]
+	for mesh in visual_root.find_children("*", "MeshInstance3D", true, false):
+		var skin: Skin = mesh.skin
+		if skin == null:
+			continue
+		for i in skin.get_bind_count():
+			var bind_name := skin.get_bind_name(i)
+			if bind_name != "" and bind_name not in tracked_bones:
+				tracked_bones.append(bind_name)
+	for bone_name in tracked_bones:
+		var bone_idx: int = model_skeleton.find_bone(bone_name)
+		if bone_idx == -1:
+			continue
+		bone_ids[bone_name] = bone_idx
+		base_bone_rotations[bone_name] = model_skeleton.get_bone_pose_rotation(bone_idx)
+		base_bone_positions[bone_name] = model_skeleton.get_bone_pose_position(bone_idx)
+		_register_leg_bone_group(bone_name)
+
+	if DEBUG_MODEL_ANIMATION:
+		print("PLAYER_MODEL_BONES|cached=", bone_ids.keys())
+		print("PLAYER_MODEL_LEG_GROUPS|", leg_bone_groups)
+
+
+func _register_leg_bone_group(bone_name: String) -> void:
+	if bone_name.begins_with("L_Thigh"):
+		leg_bone_groups["left_thigh"].append(bone_name)
+	elif bone_name.begins_with("L_Calf"):
+		leg_bone_groups["left_calf"].append(bone_name)
+	elif bone_name.begins_with("L_Foot"):
+		leg_bone_groups["left_foot"].append(bone_name)
+	elif bone_name.begins_with("R_Thigh"):
+		leg_bone_groups["right_thigh"].append(bone_name)
+	elif bone_name.begins_with("R_Calf"):
+		leg_bone_groups["right_calf"].append(bone_name)
+	elif bone_name.begins_with("R_Foot"):
+		leg_bone_groups["right_foot"].append(bone_name)
+
+func _animate_model(delta: float, forward_input: float) -> void:
+	if model_skeleton == null or bone_ids.is_empty():
+		return
+
+	var move_blend: float = abs(forward_input)
+	if move_blend > 0.0:
+		idle_timer = 0.0
+		if using_imported_idle:
+			_stop_imported_idle()
+	else:
+		idle_timer += delta
+		if imported_idle_anim != "" and idle_timer >= IDLE_ANIMATION_DELAY:
+			if not using_imported_idle:
+				_restore_model_pose()
+				anim_player.play(imported_idle_anim)
+				using_imported_idle = true
+			return
+
+	if move_blend > 0.0:
+		walk_cycle += delta * WALK_CYCLE_SPEED * move_blend * sign(forward_input)
+
+	var idle_time: float = Time.get_ticks_msec() * 0.001
+	var idle_breath: float = sin(idle_time * 1.8) * 0.02 * (1.0 - move_blend)
+	var swing: float = sin(walk_cycle) * WALK_THIGH_SWING * move_blend
+	var opposite_swing: float = sin(walk_cycle + PI) * WALK_THIGH_SWING * move_blend
+	var left_calf_phase: float = sin(walk_cycle - PI * 0.35) * WALK_CALF_SWING * move_blend
+	var right_calf_phase: float = sin(walk_cycle + PI - PI * 0.35) * WALK_CALF_SWING * move_blend
+	var left_knee: float = 0.05 * move_blend + left_calf_phase + max(0.0, -swing) * WALK_CALF_BEND
+	var right_knee: float = 0.05 * move_blend + right_calf_phase + max(0.0, -opposite_swing) * WALK_CALF_BEND
+	var hip_bob: float = abs(sin(walk_cycle * 2.0)) * WALK_HIP_BOB * move_blend
+	var left_leg_inward_z: float = WALK_LEG_INWARD_Z * move_blend
+	var right_leg_inward_z: float = -WALK_LEG_INWARD_Z * move_blend
+	var torso_twist: float = sin(walk_cycle) * 0.08 * move_blend
+	var left_clavicle_x: float = opposite_swing * 0.18
+	var right_clavicle_x: float = swing * 0.18
+	var left_upperarm_x: float = opposite_swing * 0.8 + 0.08
+	var right_upperarm_x: float = swing * 0.8 + 0.08
+	var left_forearm_x: float = RELAXED_FOREARM_X + max(0.0, -opposite_swing) * 0.35 + 0.08 * move_blend
+	var right_forearm_x: float = RELAXED_FOREARM_X + max(0.0, -swing) * 0.35 + 0.08 * move_blend
+	var left_hand_x: float = RELAXED_HAND_X + opposite_swing * 0.2
+	var right_hand_x: float = RELAXED_HAND_X + swing * 0.2
+	var left_visible_thigh: float = swing * 1.15
+	var right_visible_thigh: float = opposite_swing * 1.15
+	var left_visible_calf: float = left_knee * 1.1
+	var right_visible_calf: float = right_knee * 1.1
+	var left_foot_lift: float = -0.14 - swing * (WALK_FOOT_SWING * 1.5) - left_calf_phase * 0.5
+	var right_foot_lift: float = -0.14 - opposite_swing * (WALK_FOOT_SWING * 1.5) - right_calf_phase * 0.5
+
+	_set_bone_rotation("Root", Vector3(0.0, 0.0, 0.0))
+	_set_bone_rotation("Hip", Vector3(0.03 * move_blend, 0.0, 0.0))
+	_set_bone_position("Hip", Vector3(0.0, hip_bob, 0.0))
+	_set_bone_rotation("Pelvis", Vector3(0.02 * move_blend, 0.0, 0.0))
+	_set_bone_rotation("Waist", Vector3(-idle_breath, torso_twist * 0.3, 0.0))
+	_set_bone_rotation("Spine01", Vector3(idle_breath + sin(walk_cycle + PI * 0.5) * 0.08 * move_blend, torso_twist, 0.0))
+	_set_bone_rotation("Spine02", Vector3(idle_breath * 0.5, torso_twist * 0.65, 0.0))
+	_set_bone_rotation("NeckTwist01", Vector3(-idle_breath * 0.5, 0.0, 0.0))
+	_set_bone_rotation("Head", Vector3(-idle_breath * 0.8, 0.0, 0.0))
+
+	_apply_leg_group_pose(leg_bone_groups["left_thigh"], left_visible_thigh, left_leg_inward_z)
+	_apply_leg_group_pose(leg_bone_groups["left_calf"], left_visible_calf, 0.0)
+	_apply_leg_group_pose(leg_bone_groups["left_foot"], left_foot_lift, -left_leg_inward_z * 0.5)
+	_apply_leg_group_pose(leg_bone_groups["right_thigh"], right_visible_thigh, right_leg_inward_z)
+	_apply_leg_group_pose(leg_bone_groups["right_calf"], right_visible_calf, 0.0)
+	_apply_leg_group_pose(leg_bone_groups["right_foot"], right_foot_lift, -right_leg_inward_z * 0.5)
+	_set_bone_rotation("L_Clavicle", Vector3(left_clavicle_x, -RELAXED_ARM_SPREAD_Y * 0.35, -RELAXED_CLAVICLE_Z))
+	_set_bone_rotation("R_Clavicle", Vector3(right_clavicle_x, RELAXED_ARM_SPREAD_Y * 0.35, RELAXED_CLAVICLE_Z))
+	_set_bone_rotation("L_Upperarm", Vector3(left_upperarm_x, -RELAXED_ARM_SPREAD_Y, -RELAXED_UPPERARM_Z))
+	_set_bone_rotation("R_Upperarm", Vector3(right_upperarm_x, RELAXED_ARM_SPREAD_Y, RELAXED_UPPERARM_Z))
+	_set_bone_rotation("L_Forearm", Vector3(left_forearm_x, -RELAXED_ARM_SPREAD_Y * 0.2, -RELAXED_FOREARM_Z))
+	_set_bone_rotation("R_Forearm", Vector3(right_forearm_x, RELAXED_ARM_SPREAD_Y * 0.2, RELAXED_FOREARM_Z))
+	_set_bone_rotation("L_Hand", Vector3(left_hand_x, 0.0, -RELAXED_HAND_Z))
+	_set_bone_rotation("R_Hand", Vector3(right_hand_x, 0.0, RELAXED_HAND_Z))
+
+	if DEBUG_MODEL_ANIMATION and move_blend > 0.0:
+		var now := Time.get_ticks_msec() * 0.001
+		if now - last_debug_log_time > 0.5:
+			last_debug_log_time = now
+			print(
+				"PLAYER_WALK_DEBUG|blend=", move_blend,
+				"|left_thigh=", leg_bone_groups["left_thigh"],
+				"|left_calf=", leg_bone_groups["left_calf"],
+				"|left_foot=", leg_bone_groups["left_foot"],
+				"|right_thigh=", leg_bone_groups["right_thigh"],
+				"|right_calf=", leg_bone_groups["right_calf"],
+				"|right_foot=", leg_bone_groups["right_foot"]
+			)
+
+
+func _apply_leg_group_pose(bone_names: Array, x_rotation: float, z_rotation: float) -> void:
+	for bone_name in bone_names:
+		var scale := 1.0
+		if "Twist02" in bone_name:
+			scale = 0.75
+		elif "Twist01" in bone_name:
+			scale = 0.9
+		_set_bone_rotation(bone_name, Vector3(x_rotation * scale, 0.0, z_rotation * scale))
+
+
+func _stop_imported_idle() -> void:
+	if anim_player:
+		anim_player.stop()
+	using_imported_idle = false
+	_restore_model_pose()
+
+
+func _restore_model_pose() -> void:
+	for bone_name in bone_ids.keys():
+		var bone_idx: int = int(bone_ids.get(bone_name, -1))
+		if bone_idx == -1:
+			continue
+		var base_rotation: Quaternion = base_bone_rotations.get(bone_name, Quaternion.IDENTITY) as Quaternion
+		var base_position: Vector3 = base_bone_positions.get(bone_name, Vector3.ZERO) as Vector3
+		model_skeleton.set_bone_pose_rotation(bone_idx, base_rotation)
+		model_skeleton.set_bone_pose_position(bone_idx, base_position)
+
+
+func _set_bone_rotation(bone_name: String, euler_rotation: Vector3) -> void:
+	var bone_idx: int = int(bone_ids.get(bone_name, -1))
+	if bone_idx == -1:
+		return
+	var base_rotation: Quaternion = base_bone_rotations.get(bone_name, Quaternion.IDENTITY) as Quaternion
+	var offset_rotation: Quaternion = Basis.from_euler(euler_rotation).get_rotation_quaternion()
+	model_skeleton.set_bone_pose_rotation(bone_idx, base_rotation * offset_rotation)
+
+
+func _set_bone_position(bone_name: String, position_offset: Vector3) -> void:
+	var bone_idx: int = int(bone_ids.get(bone_name, -1))
+	if bone_idx == -1:
+		return
+	var base_position: Vector3 = base_bone_positions.get(bone_name, Vector3.ZERO) as Vector3
+	model_skeleton.set_bone_pose_position(bone_idx, base_position + position_offset)
+
+func _get_forward_input() -> float:
+	var forward := _is_any_key_pressed([KEY_UP])
+	var backward := _is_any_key_pressed([KEY_DOWN])
+	return float(forward - backward)
 
 func _is_any_key_pressed(keys: Array[int]) -> int:
 	for keycode in keys:
 		if Input.is_physical_key_pressed(keycode):
 			return 1
 	return 0
-
-func _camera_relative_direction(input_vector: Vector2) -> Vector3:
-	if input_vector == Vector2.ZERO:
-		return Vector3.ZERO
-
-	var camera := get_viewport().get_camera_3d()
-	if camera == null:
-		return Vector3(input_vector.x, 0.0, input_vector.y).normalized()
-
-	var forward := -camera.global_transform.basis.z
-	forward.y = 0.0
-	forward = forward.normalized()
-
-	var right := camera.global_transform.basis.x
-	right.y = 0.0
-	right = right.normalized()
-
-	return (right * input_vector.x + forward * -input_vector.y).normalized()
 
 func _build_dummy_rig() -> void:
 	# -----------------------------------------------------------------------
@@ -210,14 +452,8 @@ func _build_dummy_rig() -> void:
 
 
 func _rebuild_dummy_rig() -> void:
-	if visual_root == null:
-		return
-	for child in visual_root.get_children():
-		child.free()
 	joint_map.clear()
 	material_cache.clear()
-	visual_root.position = Vector3.ZERO
-	_build_dummy_rig()
 
 
 func _make_joint(joint_name: String, parent: Node3D, local_pos: Vector3) -> Node3D:
