@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://c8k3o4j0scd6f"]
 
 [ext_resource type="Script" uid="uid://odhvnbi5losv" path="res://scripts/player.gd" id="1_player_script"]
-[ext_resource type="PackedScene" uid="uid://bht5tjcoitlkv" path="res://scenes/pajama girl.glb" id="2_player_model"]
+[ext_resource type="PackedScene" uid="uid://dovdc11pwvdrh" path="res://scenes/girl.glb" id="2_player_model"]
 
 [sub_resource type="CapsuleShape3D" id="1_body_shape"]
 radius = 0.28

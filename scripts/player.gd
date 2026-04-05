@@ -50,13 +50,21 @@ var model_skeleton: Skeleton3D = null
 var bone_ids: Dictionary = {}
 var base_bone_rotations: Dictionary = {}
 var base_bone_positions: Dictionary = {}
-var leg_bone_groups := {
+var model_bone_groups := {
 	"left_thigh": [],
 	"left_calf": [],
 	"left_foot": [],
 	"right_thigh": [],
 	"right_calf": [],
-	"right_foot": []
+	"right_foot": [],
+	"left_clavicle": [],
+	"right_clavicle": [],
+	"left_upperarm": [],
+	"right_upperarm": [],
+	"left_forearm": [],
+	"right_forearm": [],
+	"left_hand": [],
+	"right_hand": []
 }
 var idle_timer := 0.0
 var imported_idle_anim := ""
@@ -146,69 +154,53 @@ func _find_animation_name(candidates: Array) -> String:
 	return ""
 
 func _cache_model_bones() -> void:
-	var tracked_bones := [
-		"Root",
-		"Hip",
-		"Pelvis",
-		"Waist",
-		"Spine01",
-		"Spine02",
-		"NeckTwist01",
-		"Head",
-		"L_Clavicle",
-		"L_Thigh",
-		"L_ThighTwist01",
-		"L_Calf",
-		"L_Foot",
-		"L_Forearm",
-		"L_Hand",
-		"R_Clavicle",
-		"R_Thigh",
-		"R_ThighTwist01",
-		"R_Calf",
-		"R_CalfTwist01",
-		"R_CalfTwist02",
-		"R_Foot",
-		"R_Forearm",
-		"R_Hand",
-		"L_Upperarm",
-		"R_Upperarm"
-	]
-	for mesh in visual_root.find_children("*", "MeshInstance3D", true, false):
-		var skin: Skin = mesh.skin
-		if skin == null:
-			continue
-		for i in skin.get_bind_count():
-			var bind_name := skin.get_bind_name(i)
-			if bind_name != "" and bind_name not in tracked_bones:
-				tracked_bones.append(bind_name)
-	for bone_name in tracked_bones:
-		var bone_idx: int = model_skeleton.find_bone(bone_name)
-		if bone_idx == -1:
-			continue
+	bone_ids.clear()
+	base_bone_rotations.clear()
+	base_bone_positions.clear()
+	for group_name in model_bone_groups.keys():
+		model_bone_groups[group_name] = []
+
+	for bone_idx in model_skeleton.get_bone_count():
+		var bone_name := model_skeleton.get_bone_name(bone_idx)
 		bone_ids[bone_name] = bone_idx
 		base_bone_rotations[bone_name] = model_skeleton.get_bone_pose_rotation(bone_idx)
 		base_bone_positions[bone_name] = model_skeleton.get_bone_pose_position(bone_idx)
-		_register_leg_bone_group(bone_name)
+		_register_model_bone_group(bone_name)
 
 	if DEBUG_MODEL_ANIMATION:
 		print("PLAYER_MODEL_BONES|cached=", bone_ids.keys())
-		print("PLAYER_MODEL_LEG_GROUPS|", leg_bone_groups)
+		print("PLAYER_MODEL_GROUPS|", model_bone_groups)
 
 
-func _register_leg_bone_group(bone_name: String) -> void:
+func _register_model_bone_group(bone_name: String) -> void:
 	if bone_name.begins_with("L_Thigh"):
-		leg_bone_groups["left_thigh"].append(bone_name)
+		model_bone_groups["left_thigh"].append(bone_name)
 	elif bone_name.begins_with("L_Calf"):
-		leg_bone_groups["left_calf"].append(bone_name)
+		model_bone_groups["left_calf"].append(bone_name)
 	elif bone_name.begins_with("L_Foot"):
-		leg_bone_groups["left_foot"].append(bone_name)
+		model_bone_groups["left_foot"].append(bone_name)
 	elif bone_name.begins_with("R_Thigh"):
-		leg_bone_groups["right_thigh"].append(bone_name)
+		model_bone_groups["right_thigh"].append(bone_name)
 	elif bone_name.begins_with("R_Calf"):
-		leg_bone_groups["right_calf"].append(bone_name)
+		model_bone_groups["right_calf"].append(bone_name)
 	elif bone_name.begins_with("R_Foot"):
-		leg_bone_groups["right_foot"].append(bone_name)
+		model_bone_groups["right_foot"].append(bone_name)
+	elif bone_name.begins_with("L_Clavicle"):
+		model_bone_groups["left_clavicle"].append(bone_name)
+	elif bone_name.begins_with("R_Clavicle"):
+		model_bone_groups["right_clavicle"].append(bone_name)
+	elif bone_name.begins_with("L_Upperarm"):
+		model_bone_groups["left_upperarm"].append(bone_name)
+	elif bone_name.begins_with("R_Upperarm"):
+		model_bone_groups["right_upperarm"].append(bone_name)
+	elif bone_name.begins_with("L_Forearm"):
+		model_bone_groups["left_forearm"].append(bone_name)
+	elif bone_name.begins_with("R_Forearm"):
+		model_bone_groups["right_forearm"].append(bone_name)
+	elif bone_name.begins_with("L_Hand"):
+		model_bone_groups["left_hand"].append(bone_name)
+	elif bone_name.begins_with("R_Hand"):
+		model_bone_groups["right_hand"].append(bone_name)
 
 func _animate_model(delta: float, forward_input: float) -> void:
 	if model_skeleton == null or bone_ids.is_empty():
@@ -268,20 +260,20 @@ func _animate_model(delta: float, forward_input: float) -> void:
 	_set_bone_rotation("NeckTwist01", Vector3(-idle_breath * 0.5, 0.0, 0.0))
 	_set_bone_rotation("Head", Vector3(-idle_breath * 0.8, 0.0, 0.0))
 
-	_apply_leg_group_pose(leg_bone_groups["left_thigh"], left_visible_thigh, left_leg_inward_z)
-	_apply_leg_group_pose(leg_bone_groups["left_calf"], left_visible_calf, 0.0)
-	_apply_leg_group_pose(leg_bone_groups["left_foot"], left_foot_lift, -left_leg_inward_z * 0.5)
-	_apply_leg_group_pose(leg_bone_groups["right_thigh"], right_visible_thigh, right_leg_inward_z)
-	_apply_leg_group_pose(leg_bone_groups["right_calf"], right_visible_calf, 0.0)
-	_apply_leg_group_pose(leg_bone_groups["right_foot"], right_foot_lift, -right_leg_inward_z * 0.5)
-	_set_bone_rotation("L_Clavicle", Vector3(left_clavicle_x, -RELAXED_ARM_SPREAD_Y * 0.35, -RELAXED_CLAVICLE_Z))
-	_set_bone_rotation("R_Clavicle", Vector3(right_clavicle_x, RELAXED_ARM_SPREAD_Y * 0.35, RELAXED_CLAVICLE_Z))
-	_set_bone_rotation("L_Upperarm", Vector3(left_upperarm_x, -RELAXED_ARM_SPREAD_Y, -RELAXED_UPPERARM_Z))
-	_set_bone_rotation("R_Upperarm", Vector3(right_upperarm_x, RELAXED_ARM_SPREAD_Y, RELAXED_UPPERARM_Z))
-	_set_bone_rotation("L_Forearm", Vector3(left_forearm_x, -RELAXED_ARM_SPREAD_Y * 0.2, -RELAXED_FOREARM_Z))
-	_set_bone_rotation("R_Forearm", Vector3(right_forearm_x, RELAXED_ARM_SPREAD_Y * 0.2, RELAXED_FOREARM_Z))
-	_set_bone_rotation("L_Hand", Vector3(left_hand_x, 0.0, -RELAXED_HAND_Z))
-	_set_bone_rotation("R_Hand", Vector3(right_hand_x, 0.0, RELAXED_HAND_Z))
+	_apply_bone_group_pose(model_bone_groups["left_thigh"], Vector3(left_visible_thigh, 0.0, left_leg_inward_z))
+	_apply_bone_group_pose(model_bone_groups["left_calf"], Vector3(left_visible_calf, 0.0, 0.0))
+	_apply_bone_group_pose(model_bone_groups["left_foot"], Vector3(left_foot_lift, 0.0, -left_leg_inward_z * 0.5))
+	_apply_bone_group_pose(model_bone_groups["right_thigh"], Vector3(right_visible_thigh, 0.0, right_leg_inward_z))
+	_apply_bone_group_pose(model_bone_groups["right_calf"], Vector3(right_visible_calf, 0.0, 0.0))
+	_apply_bone_group_pose(model_bone_groups["right_foot"], Vector3(right_foot_lift, 0.0, -right_leg_inward_z * 0.5))
+	_apply_bone_group_pose(model_bone_groups["left_clavicle"], Vector3(left_clavicle_x, RELAXED_ARM_SPREAD_Y * 0.35, -RELAXED_CLAVICLE_Z))
+	_apply_bone_group_pose(model_bone_groups["right_clavicle"], Vector3(right_clavicle_x, RELAXED_ARM_SPREAD_Y * 0.35, -RELAXED_CLAVICLE_Z))
+	_apply_arm_group_pose(model_bone_groups["left_upperarm"], Vector3(left_upperarm_x, -RELAXED_ARM_SPREAD_Y, RELAXED_UPPERARM_Z))
+	_apply_arm_group_pose(model_bone_groups["right_upperarm"], Vector3(right_upperarm_x, RELAXED_ARM_SPREAD_Y, -RELAXED_UPPERARM_Z))
+	_apply_arm_group_pose(model_bone_groups["left_forearm"], Vector3(left_forearm_x, -RELAXED_ARM_SPREAD_Y * 0.2, -RELAXED_FOREARM_Z))
+	_apply_arm_group_pose(model_bone_groups["right_forearm"], Vector3(right_forearm_x, RELAXED_ARM_SPREAD_Y * 0.2, -RELAXED_FOREARM_Z))
+	_apply_bone_group_pose(model_bone_groups["left_hand"], Vector3(left_hand_x, 0.0, -RELAXED_HAND_Z))
+	_apply_bone_group_pose(model_bone_groups["right_hand"], Vector3(right_hand_x, 0.0, RELAXED_HAND_Z))
 
 	if DEBUG_MODEL_ANIMATION and move_blend > 0.0:
 		var now := Time.get_ticks_msec() * 0.001
@@ -289,23 +281,35 @@ func _animate_model(delta: float, forward_input: float) -> void:
 			last_debug_log_time = now
 			print(
 				"PLAYER_WALK_DEBUG|blend=", move_blend,
-				"|left_thigh=", leg_bone_groups["left_thigh"],
-				"|left_calf=", leg_bone_groups["left_calf"],
-				"|left_foot=", leg_bone_groups["left_foot"],
-				"|right_thigh=", leg_bone_groups["right_thigh"],
-				"|right_calf=", leg_bone_groups["right_calf"],
-				"|right_foot=", leg_bone_groups["right_foot"]
+				"|left_thigh=", model_bone_groups["left_thigh"],
+				"|left_calf=", model_bone_groups["left_calf"],
+				"|left_foot=", model_bone_groups["left_foot"],
+				"|right_thigh=", model_bone_groups["right_thigh"],
+				"|right_calf=", model_bone_groups["right_calf"],
+				"|right_foot=", model_bone_groups["right_foot"]
 			)
 
 
-func _apply_leg_group_pose(bone_names: Array, x_rotation: float, z_rotation: float) -> void:
+func _apply_bone_group_pose(bone_names: Array, euler_rotation: Vector3) -> void:
 	for bone_name in bone_names:
-		var scale := 1.0
-		if "Twist02" in bone_name:
-			scale = 0.75
-		elif "Twist01" in bone_name:
-			scale = 0.9
-		_set_bone_rotation(bone_name, Vector3(x_rotation * scale, 0.0, z_rotation * scale))
+		_set_bone_rotation(bone_name, euler_rotation * _bone_group_scale(bone_name))
+
+
+func _apply_arm_group_pose(bone_names: Array, euler_rotation: Vector3) -> void:
+	for bone_name in bone_names:
+		var scale := _bone_group_scale(bone_name)
+		if "Twist" in bone_name:
+			_set_bone_rotation(bone_name, Vector3(euler_rotation.x * scale, 0.0, 0.0))
+			continue
+		_set_bone_rotation(bone_name, euler_rotation * scale)
+
+
+func _bone_group_scale(bone_name: String) -> float:
+	if "Twist02" in bone_name:
+		return 0.75
+	if "Twist01" in bone_name:
+		return 0.9
+	return 1.0
 
 
 func _stop_imported_idle() -> void:
